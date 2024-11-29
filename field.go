@@ -1,6 +1,9 @@
 package polygfgo
 
-type Num uint
+import (
+	"fmt"
+	"math"
+)
 
 const UNIT_DEGREE = 1
 
@@ -13,41 +16,176 @@ type FieldInterface interface {
 	// ToString() string
 }
 
-func FieldFactory(p, m uint, generator Polynomial, enableLogging bool) (field FieldInterface) {
+func FieldFactory(p, m int, generator Polynomial, enableLogging bool) (field FieldInterface) {
 	if m == 1 {
 		field = SimpleField{p, enableLogging}
 		return
 	}
-	field = ExtendedField{p, m, generator, enableLogging}
+	field = ExtendedField{SimpleField{p, enableLogging}, p, m, generator, enableLogging}
 	return
 }
 
 // Представление конечного поля GF(p)
 type SimpleField struct {
-	p             uint
+	p             int
 	enableLogging bool
 }
 
-func (f *SimpleField) Normalize(poly *Polynomial) (product Polynomial) {
+func (f SimpleField) Normalize(poly Polynomial) (product Polynomial) {
+	product = newPolynomialNoReverse(poly.coefs)
+	for i := 0; i < product.len; i++ {
+		product.coefs[i] %= f.p
+		if product.coefs[i] < 0 {
+			product.coefs[i] += f.p
+		}
+	}
+
+	product = product.Normalize()
+
 	return
 }
 
-func (f *SimpleField) AddPolynomials(p1, p2 Polynomial) (product Polynomial) {
-	product = p1.Add(p2)
+func (f SimpleField) AddPolynomials(p1, p2 Polynomial) (product Polynomial) {
+	product = f.Normalize(p1.Add(p2))
+	return
+}
 
-	f.Normalize(&product)
+func (f SimpleField) SubPolynomials(p1, p2 Polynomial) (product Polynomial) {
+	product = f.Normalize(p1.Sub(p2))
+	return
+}
+
+func (f SimpleField) MulPolynomials(p1, p2 Polynomial) (product Polynomial) {
+	product = f.Normalize(p1.Mul(p2))
+	return
+}
+
+func (f SimpleField) DivPolynomials(p1, p2 Polynomial) (quot, rem Polynomial, err error) {
+	q := []int{}
+	r := make([]int, p1.len)
+	copy(r, reverse(p1.coefs))
+	d := make([]int, p2.len)
+	copy(d, reverse(p2.coefs))
+
+	if p2.isZeroPolynomial() {
+		return newZeroPolynomial(), newZeroPolynomial(), fmt.Errorf("division by zero is not supported")
+	}
+
+	if p1.deg < p2.deg {
+		return newZeroPolynomial(), f.Normalize(p1), nil
+	}
+
+	// Находим коэффициент для вычитания
+	inv := modInverse(d[0], f.p)
+	if inv == -1 {
+		return newZeroPolynomial(), newZeroPolynomial(), fmt.Errorf("there is no reverse element")
+	}
+
+	for len(r) >= len(d) && !isZero(r) {
+		leadCoeff := (r[0] * inv) % f.p
+		if leadCoeff < 0 {
+			leadCoeff += f.p
+		}
+		q = append(q, leadCoeff)
+
+		// Вычитаем (leadCoeff * b) из r
+		for i := 0; i < len(d); i++ {
+			r[i] = (r[i] - leadCoeff*d[i]) % f.p
+			if r[i] < 0 {
+				r[i] += f.p
+			}
+		}
+		// Удаляем старший член
+		r = r[1:]
+	}
+
+	quot, rem = NewPolynomial(q), NewPolynomial(r)
 
 	return
 }
 
-func (f *SimpleField) SubPolynomials(p1, p2 Polynomial) (product Polynomial) {
-	return
+// PowModPolynomials выполняет быстрое возведение в степень многочлена base в степени exp по модулю mod.
+// Параметры:
+// - base: Многочлен, который нужно возводить в степень.
+// - exp: Степень возведения.
+// - mod: Многочлен, по модулю которого вычисляется результат.
+// Возвращает:
+// - Результат вычисления base^exp % mod.
+func (f SimpleField) PowModPolynomials(base Polynomial, exp int, mod Polynomial) Polynomial {
+	// Результат инициализируем как единичный многочлен [1]
+	result := newPolynomialNoReverse([]int{1})
+
+	// Копируем base для работы, чтобы не изменять исходный многочлен
+	_, currentBase, _ := f.DivPolynomials(base, mod)
+
+	for exp > 0 {
+		if exp%2 == 1 {
+			// Если текущий бит степени exp равен 1, умножаем результат на currentBase
+			result = f.MulPolynomials(result, currentBase)
+			_, result, _ = f.DivPolynomials(result, mod) // Берем остаток от деления
+		}
+
+		// Возводим currentBase в квадрат
+		currentBase = f.MulPolynomials(currentBase, currentBase)
+		_, currentBase, _ = f.DivPolynomials(currentBase, mod) // Берем остаток от деления
+
+		// Переходим к следующему биту
+		exp /= 2
+	}
+
+	return result
 }
 
 // Представление конечного поля GF(q), q = p^m
+// Вохможно стоит хранить в атрибутах простое поле
 type ExtendedField struct {
-	// q             uint
-	p, m          uint
+	simple        SimpleField
+	p, m          int
 	generator     Polynomial
 	enableLogging bool
+}
+
+// Возращает poly(x) mod g(x)
+func (f ExtendedField) Normalize(poly Polynomial) (product Polynomial) {
+	_, product, _ = SimpleField{f.p, f.enableLogging}.DivPolynomials(poly, f.generator)
+	return
+}
+
+func (f ExtendedField) AddPolynomials(p1, p2 Polynomial) (product Polynomial) {
+	product = f.Normalize(p1.Add(p2))
+	return
+}
+
+func (f ExtendedField) SubPolynomials(p1, p2 Polynomial) (product Polynomial) {
+	product = f.Normalize(p1.Sub(p2))
+	return
+}
+
+func (f ExtendedField) MulPolynomials(p1, p2 Polynomial) (product Polynomial) {
+	product = f.Normalize(p1.Mul(p2))
+	return
+}
+
+func (f ExtendedField) DivPolynomials(p1, p2 Polynomial) (remainder Polynomial) {
+	inverse, err := f.modInverse(p2)
+	if err != nil {
+		return
+	}
+
+	remainder = f.MulPolynomials(p1, inverse)
+
+	return
+}
+
+func (f ExtendedField) modInverse(poly Polynomial) (product Polynomial, err error) {
+	if poly.isZeroPolynomial() {
+		return newZeroPolynomial(), fmt.Errorf("poinomial cannot be zero")
+	}
+	if poly.deg >= f.generator.deg {
+		_, poly, _ = f.simple.DivPolynomials(poly, f.generator)
+	}
+
+	q := int(math.Pow(float64(f.p), float64(f.generator.deg)))
+
+	return f.simple.PowModPolynomials(poly, q, f.generator), nil
 }
