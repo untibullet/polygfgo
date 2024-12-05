@@ -12,6 +12,8 @@ type FieldInterface interface {
 	SubPolynomials(p1, p2 Polynomial) Polynomial
 	MulPolynomials(p1, p2 Polynomial) Polynomial
 	DivPolynomials(p1, p2 Polynomial) (Polynomial, Polynomial, error)
+	RandomIrreducible(deg int) Polynomial
+	ToString() string
 }
 
 func FieldFactory(p, m int, generator Polynomial, enableLogging bool) (field FieldInterface, err error) {
@@ -138,6 +140,14 @@ func (f SimpleField) PowModPolynomial(base Polynomial, exp int, mod Polynomial) 
 	return result
 }
 
+func (f SimpleField) RandomIrreducible(deg int) (irreducible Polynomial) {
+	return
+}
+
+func (f SimpleField) ToString() string {
+	return fmt.Sprintf("GF(%d)", f.p)
+}
+
 // Представление конечного поля GF(q), q = p^m
 // Вохможно стоит хранить в атрибутах простое поле
 type ExtendedField struct {
@@ -188,4 +198,12 @@ func (f ExtendedField) modInverse(poly Polynomial) (Polynomial, error) {
 	q := int(math.Pow(float64(f.p), float64(f.generator.deg)))
 
 	return f.simple.PowModPolynomial(poly, q-2, f.generator), nil
+}
+
+func (f ExtendedField) RandomIrreducible(deg int) (irreducible Polynomial) {
+	return
+}
+
+func (f ExtendedField) ToString() string {
+	return fmt.Sprintf("GF(%d^%d) mod %s", f.p, f.m, f.generator.ToString())
 }

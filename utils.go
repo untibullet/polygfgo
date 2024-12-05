@@ -8,14 +8,6 @@ const (
 	ln2 = 0.693147180559945309417232121458176568075500134360255254120680009
 )
 
-func trimLeadingZeros(poly []int) []int {
-	i := 0
-	for i < len(poly) && poly[i] == 0 {
-		i++
-	}
-	return poly[i:]
-}
-
 // Эта функция нужна чисто для операции деления, так как
 // в ней затратно на каждом шаге вызывать Normalize() и получать
 // пустой или нулевой многочлен для сравнения в Equals()
@@ -90,11 +82,4 @@ func modInverse(a, p int) int {
 		}
 	}
 	return -1
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
