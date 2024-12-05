@@ -138,7 +138,10 @@ func (p Polynomial) MulScalar(alpha int) Polynomial {
 	return result.Normalize()
 }
 
-// Пока что возвращает неформатированный список коэффициентов
-func (p Polynomial) ToString() string {
+func (p Polynomial) Sprint() string {
 	return fmt.Sprint(p.coefs) + fmt.Sprintf("%d:%d", p.len, p.deg)
+}
+
+func (p Polynomial) ToString() string {
+	return fmt.Sprint(reverse(p.coefs))
 }

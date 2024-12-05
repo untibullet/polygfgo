@@ -8,15 +8,19 @@ import (
 const UNIT_DEGREE = 1
 
 type FieldInterface interface {
-	// AddPolynomials(p1, p2 Polynomial) Polynomial
-	// SubPolynomials(p1, p2 Polynomial) Polynomial
-	// MulPolynomials(p1, p2 Polynomial) Polynomial
-	// DivPolynomials(p1, p2 Polynomial) Polynomial
-	// Normalize(poly Polynomial) Polynomial
-	// ToString() string
+	AddPolynomials(p1, p2 Polynomial) Polynomial
+	SubPolynomials(p1, p2 Polynomial) Polynomial
+	MulPolynomials(p1, p2 Polynomial) Polynomial
+	DivPolynomials(p1, p2 Polynomial) (Polynomial, Polynomial, error)
+	RandomIrreducible(deg int) Polynomial
+	ToString() string
 }
 
-func FieldFactory(p, m int, generator Polynomial, enableLogging bool) (field FieldInterface) {
+func FieldFactory(p, m int, generator Polynomial, enableLogging bool) (field FieldInterface, err error) {
+	if generator.deg > m {
+		err = fmt.Errorf("the degree of the generator must be lower than or equal to %d", m)
+		return
+	}
 	if m == 1 {
 		field = SimpleField{p, enableLogging}
 		return
@@ -104,14 +108,14 @@ func (f SimpleField) DivPolynomials(p1, p2 Polynomial) (quot, rem Polynomial, er
 	return
 }
 
-// PowModPolynomials выполняет быстрое возведение в степень многочлена base в степени exp по модулю mod.
+// PowModPolynomial выполняет быстрое возведение в степень многочлена base в степени exp по модулю mod.
 // Параметры:
 // - base: Многочлен, который нужно возводить в степень.
 // - exp: Степень возведения.
 // - mod: Многочлен, по модулю которого вычисляется результат.
 // Возвращает:
 // - Результат вычисления base^exp % mod.
-func (f SimpleField) PowModPolynomials(base Polynomial, exp int, mod Polynomial) Polynomial {
+func (f SimpleField) PowModPolynomial(base Polynomial, exp int, mod Polynomial) Polynomial {
 	// Результат инициализируем как единичный многочлен [1]
 	result := newPolynomialNoReverse([]int{1})
 
@@ -134,6 +138,14 @@ func (f SimpleField) PowModPolynomials(base Polynomial, exp int, mod Polynomial)
 	}
 
 	return result
+}
+
+func (f SimpleField) RandomIrreducible(deg int) (irreducible Polynomial) {
+	return
+}
+
+func (f SimpleField) ToString() string {
+	return fmt.Sprintf("GF(%d)", f.p)
 }
 
 // Представление конечного поля GF(q), q = p^m
@@ -166,26 +178,32 @@ func (f ExtendedField) MulPolynomials(p1, p2 Polynomial) (product Polynomial) {
 	return
 }
 
-func (f ExtendedField) DivPolynomials(p1, p2 Polynomial) (remainder Polynomial) {
+func (f ExtendedField) DivPolynomials(p1, p2 Polynomial) (Polynomial, Polynomial, error) {
 	inverse, err := f.modInverse(p2)
 	if err != nil {
-		return
+		return newZeroPolynomial(), newZeroPolynomial(), err
 	}
 
-	remainder = f.MulPolynomials(p1, inverse)
-
-	return
+	return newZeroPolynomial(), f.MulPolynomials(p1, inverse), nil
 }
 
-func (f ExtendedField) modInverse(poly Polynomial) (product Polynomial, err error) {
-	if poly.isZeroPolynomial() {
-		return newZeroPolynomial(), fmt.Errorf("poinomial cannot be zero")
-	}
+func (f ExtendedField) modInverse(poly Polynomial) (Polynomial, error) {
 	if poly.deg >= f.generator.deg {
 		_, poly, _ = f.simple.DivPolynomials(poly, f.generator)
+	}
+	if poly.isZeroPolynomial() {
+		return newZeroPolynomial(), fmt.Errorf("polinomial cannot be zero")
 	}
 
 	q := int(math.Pow(float64(f.p), float64(f.generator.deg)))
 
-	return f.simple.PowModPolynomials(poly, q, f.generator), nil
+	return f.simple.PowModPolynomial(poly, q-2, f.generator), nil
+}
+
+func (f ExtendedField) RandomIrreducible(deg int) (irreducible Polynomial) {
+	return
+}
+
+func (f ExtendedField) ToString() string {
+	return fmt.Sprintf("GF(%d^%d) mod %s", f.p, f.m, f.generator.ToString())
 }
