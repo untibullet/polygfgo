@@ -137,11 +137,47 @@ func (f SimpleField) PowModPolynomial(base Polynomial, exp int, mod Polynomial) 
 		exp /= 2
 	}
 
-	return result
+	return f.Normalize(result)
 }
 
 func (f SimpleField) RandomIrreducible(deg int) (irreducible Polynomial) {
 	return
+}
+
+func (f SimpleField) gorutineRandomIrreducible(start, stop int, deg int) (mass []Polynomial) {
+	return
+}
+
+func (f SimpleField) isIrreducible(poly Polynomial) bool {
+	if poly.isZeroPolynomial() {
+		return false
+	}
+	n := poly.deg
+
+	if n == 0 || (poly.coefs[0] == 0 && n > 1) {
+		return false
+	}
+	if n == 1 {
+		return true
+	}
+
+	x := newPolynomialNoReverse([]int{0, 1}) // x
+	for m, i := n/2, 1; i <= m; i++ {
+		tmp := f.PowModPolynomial(x, int(math.Pow(float64(f.p), float64(i))), poly)
+		tmp = f.SubPolynomials(tmp, x)
+		if f.GCD(poly, tmp).deg > 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func (f SimpleField) GCD(p1, p2 Polynomial) Polynomial {
+	for !(p2.isZeroPolynomial()) {
+		_, mod, _ := f.DivPolynomials(p1, p2)
+		p1, p2 = p2, mod
+	}
+	return p1
 }
 
 func (f SimpleField) ToString() string {
