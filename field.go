@@ -19,8 +19,8 @@ type FieldInterface interface {
 	SubPolynomials(p1, p2 Polynomial) Polynomial
 	MulPolynomials(p1, p2 Polynomial) Polynomial
 	DivPolynomials(p1, p2 Polynomial) (Polynomial, Polynomial, error)
-	RandomIrreducible(deg int) Polynomial
 	IsIrreducible(poly Polynomial) bool
+	GCD(p1, p2 Polynomial) Polynomial
 	ToString() string
 }
 
@@ -160,12 +160,98 @@ func (f SimpleField) PowModPolynomial(base Polynomial, exp int, mod Polynomial) 
 	return f.Normalize(result)
 }
 
-func (f SimpleField) RandomIrreducible(deg int) (irreducible Polynomial) {
-	return
+// GenerateIrreducibles генерирует все комбинации длины k из диапазона [0..n-1] с повторениями.
+func GenerateIrreducibles(n, k, workers int) (<-chan []int, error) {
+	if n < 0 || k < 0 {
+		return nil, errors.New("n и k должны быть неотрицательными")
+	}
+	if n == 0 && k == 0 {
+		return nil, errors.New("нельзя генерировать комбинации для n=0 и k=0")
+	}
+
+	// Используем big.Int для расчёта n^k, чтобы избежать переполнения
+	total := new(big.Int).Exp(big.NewInt(int64(n)), big.NewInt(int64(k)), nil)
+	if total.Cmp(big.NewInt(0)) == 0 {
+		// Нет комбинаций для n=0 и k>0
+		out := make(chan []int)
+		close(out)
+		return out, nil
+	}
+
+	// Проверяем, помещается ли total в uint64
+	if !total.IsInt64() {
+		return nil, errors.New("слишком большое значение n^k для обработки")
+	}
+	totalInt := total.Int64()
+
+	// Разрешаем k=0 (пустая комбинация)
+	if k == 0 {
+		out := make(chan []int, 1)
+		out <- []int{}
+		close(out)
+		return out, nil
+	}
+
+	// Определяем количество воркеров
+	if workers <= 0 {
+		workers = runtime.NumCPU()
+	}
+	if workers > int(totalInt) {
+		workers = int(totalInt) // Не создавать больше воркеров, чем комбинаций
+	}
+
+	// Распределение работы между горутинами
+	chunkSize := totalInt / int64(workers)
+	remainder := totalInt % int64(workers)
+
+	out := make(chan []int, 100)
+	var wg sync.WaitGroup
+	wg.Add(workers)
+
+	startIndex := int64(0)
+	for w := 0; w < workers; w++ {
+		size := chunkSize
+		if int64(w) < remainder {
+			size++
+		}
+		endIndex := startIndex + size
+
+		go func(start, end int64) {
+			defer wg.Done()
+			for i := start; i < end; i++ {
+				comb, err := nthCombination(n, k, i)
+				if err != nil {
+					// Можно логировать ошибку или обработать её по-другому
+					continue
+				}
+				out <- comb
+			}
+		}(startIndex, endIndex)
+		startIndex = endIndex
+	}
+
+	// Закрываем канал после завершения всех горутин
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+
+	return out, nil
 }
 
-func (f SimpleField) gorutineRandomIrreducible(start, stop int, deg int) (mass []Polynomial) {
-	return
+// nthCombination вычисляет i-ю комбинацию для n^k.
+func nthCombination(n, k int, i int64) ([]int, error) {
+	if n <= 0 || k <= 0 {
+		return nil, errors.New("n и k должны быть положительными")
+	}
+
+	comb := make([]int, k)
+	current := i
+	for j := k - 1; j >= 0; j-- {
+		comb[j] = int(current % int64(n))
+		current /= int64(n)
+	}
+	return comb, nil
 }
 
 func (f SimpleField) IsIrreducible(poly Polynomial) bool {
@@ -185,16 +271,16 @@ func (f SimpleField) IsIrreducible(poly Polynomial) bool {
 	for m, i := n/2, 1; i <= m; i++ {
 		tmp := f.PowModPolynomial(x, int(math.Pow(float64(f.p), float64(i))), poly)
 		tmp = f.SubPolynomials(tmp, x)
-		if GCD(poly, tmp, f).deg > 0 {
+		if f.GCD(poly, tmp).deg > 0 {
 			return false
 		}
 	}
 	return true
 }
 
-func GCD(p1, p2 Polynomial, f FieldInterface) Polynomial {
+func (sf SimpleField) GCD(p1, p2 Polynomial) Polynomial {
 	for !(p2.isZeroPolynomial()) {
-		_, mod, _ := f.DivPolynomials(p1, p2)
+		_, mod, _ := sf.DivPolynomials(p1, p2)
 		p1, p2 = p2, mod
 	}
 	return p1
@@ -276,100 +362,10 @@ func (ex ExtendedField) IsIrreducible(poly Polynomial) bool {
 	return ex.simple.IsIrreducible(poly)
 }
 
+func (ef ExtendedField) GCD(p1, p2 Polynomial) Polynomial {
+	return ef.simple.GCD(p1, p2)
+}
+
 func (f ExtendedField) ToString() string {
 	return fmt.Sprintf("GF(%d^%d) mod %s", f.p, f.m, f.generator.ToString())
-}
-
-// GenerateNKCombinations генерирует все комбинации длины k из диапазона [0..n-1] с повторениями.
-func GenerateNKCombinations(n, k, workers int) (<-chan []int, error) {
-	if n < 0 || k < 0 {
-		return nil, errors.New("n и k должны быть неотрицательными")
-	}
-	if n == 0 && k == 0 {
-		return nil, errors.New("нельзя генерировать комбинации для n=0 и k=0")
-	}
-
-	// Используем big.Int для расчёта n^k, чтобы избежать переполнения
-	total := new(big.Int).Exp(big.NewInt(int64(n)), big.NewInt(int64(k)), nil)
-	if total.Cmp(big.NewInt(0)) == 0 {
-		// Нет комбинаций для n=0 и k>0
-		out := make(chan []int)
-		close(out)
-		return out, nil
-	}
-
-	// Проверяем, помещается ли total в uint64
-	if !total.IsInt64() {
-		return nil, errors.New("слишком большое значение n^k для обработки")
-	}
-	totalInt := total.Int64()
-
-	// Разрешаем k=0 (пустая комбинация)
-	if k == 0 {
-		out := make(chan []int, 1)
-		out <- []int{}
-		close(out)
-		return out, nil
-	}
-
-	// Определяем количество воркеров
-	if workers <= 0 {
-		workers = runtime.NumCPU()
-	}
-	if workers > int(totalInt) {
-		workers = int(totalInt) // Не создавать больше воркеров, чем комбинаций
-	}
-
-	// Распределение работы между горутинами
-	chunkSize := totalInt / int64(workers)
-	remainder := totalInt % int64(workers)
-
-	out := make(chan []int, 100)
-	var wg sync.WaitGroup
-	wg.Add(workers)
-
-	startIndex := int64(0)
-	for w := 0; w < workers; w++ {
-		size := chunkSize
-		if int64(w) < remainder {
-			size++
-		}
-		endIndex := startIndex + size
-
-		go func(start, end int64) {
-			defer wg.Done()
-			for i := start; i < end; i++ {
-				comb, err := nthNKCombination(n, k, i)
-				if err != nil {
-					// Можно логировать ошибку или обработать её по-другому
-					continue
-				}
-				out <- comb
-			}
-		}(startIndex, endIndex)
-		startIndex = endIndex
-	}
-
-	// Закрываем канал после завершения всех горутин
-	go func() {
-		wg.Wait()
-		close(out)
-	}()
-
-	return out, nil
-}
-
-// nthNKCombination вычисляет i-ю комбинацию для n^k.
-func nthNKCombination(n, k int, i int64) ([]int, error) {
-	if n <= 0 || k <= 0 {
-		return nil, errors.New("n и k должны быть положительными")
-	}
-
-	comb := make([]int, k)
-	current := i
-	for j := k - 1; j >= 0; j-- {
-		comb[j] = int(current % int64(n))
-		current /= int64(n)
-	}
-	return comb, nil
 }
