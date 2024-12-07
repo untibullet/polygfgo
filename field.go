@@ -29,7 +29,11 @@ func FieldFactory(p, m int, generator Polynomial, enableLogging bool) (field Fie
 		err = fmt.Errorf("the degree of the generator must be lower than or equal to %d", m)
 		return
 	}
-	if m == 1 {
+	if p < 2 || m < 1 {
+		err = fmt.Errorf("invalid values of the numbers p=%d < 2 or m=%d < 1", p, m)
+		return
+	}
+	if m == 1 || generator.deg < 1 {
 		field = SimpleField{p, enableLogging}
 		return
 	}
@@ -161,33 +165,34 @@ func (f SimpleField) PowModPolynomial(base Polynomial, exp int, mod Polynomial) 
 }
 
 // GenerateIrreducibles генерирует все комбинации длины k из диапазона [0..n-1] с повторениями.
-func GenerateIrreducibles(n, k, workers int) (<-chan []int, error) {
-	if n < 0 || k < 0 {
+func GenerateIrreducibles(simpleField SimpleField, length, workers int) (<-chan Polynomial, error) {
+	prime := simpleField.p
+	if prime < 0 || length < 0 {
 		return nil, errors.New("n и k должны быть неотрицательными")
 	}
-	if n == 0 && k == 0 {
+	if prime == 0 && length == 0 {
 		return nil, errors.New("нельзя генерировать комбинации для n=0 и k=0")
 	}
 
-	// Используем big.Int для расчёта n^k, чтобы избежать переполнения
-	total := new(big.Int).Exp(big.NewInt(int64(n)), big.NewInt(int64(k)), nil)
+	// Используем big.Int для расчёта p^d, чтобы избежать переполнения
+	total := new(big.Int).Exp(big.NewInt(int64(prime)), big.NewInt(int64(length)), nil)
 	if total.Cmp(big.NewInt(0)) == 0 {
 		// Нет комбинаций для n=0 и k>0
-		out := make(chan []int)
+		out := make(chan Polynomial)
 		close(out)
 		return out, nil
 	}
 
 	// Проверяем, помещается ли total в uint64
 	if !total.IsInt64() {
-		return nil, errors.New("слишком большое значение n^k для обработки")
+		return nil, errors.New("the value of p^length is too large for processing")
 	}
 	totalInt := total.Int64()
 
-	// Разрешаем k=0 (пустая комбинация)
-	if k == 0 {
-		out := make(chan []int, 1)
-		out <- []int{}
+	// Разрешаем d=0 (пустая комбинация)
+	if length == 0 {
+		out := make(chan Polynomial, 1)
+		out <- newZeroPolynomial()
 		close(out)
 		return out, nil
 	}
@@ -204,7 +209,7 @@ func GenerateIrreducibles(n, k, workers int) (<-chan []int, error) {
 	chunkSize := totalInt / int64(workers)
 	remainder := totalInt % int64(workers)
 
-	out := make(chan []int, 100)
+	out := make(chan Polynomial, 100)
 	var wg sync.WaitGroup
 	wg.Add(workers)
 
@@ -219,12 +224,19 @@ func GenerateIrreducibles(n, k, workers int) (<-chan []int, error) {
 		go func(start, end int64) {
 			defer wg.Done()
 			for i := start; i < end; i++ {
-				comb, err := nthCombination(n, k, i)
+				comb, err := nthCombination(prime, length, i)
 				if err != nil {
 					// Можно логировать ошибку или обработать её по-другому
 					continue
 				}
-				out <- comb
+				if comb[0] == 0 || comb[length-1] != 1 {
+					continue
+				}
+				poly := Polynomial{comb, length, length - 1}
+				if !(simpleField.IsIrreducible(poly)) {
+					continue
+				}
+				out <- poly
 			}
 		}(startIndex, endIndex)
 		startIndex = endIndex
@@ -239,17 +251,17 @@ func GenerateIrreducibles(n, k, workers int) (<-chan []int, error) {
 	return out, nil
 }
 
-// nthCombination вычисляет i-ю комбинацию для n^k.
-func nthCombination(n, k int, i int64) ([]int, error) {
-	if n <= 0 || k <= 0 {
-		return nil, errors.New("n и k должны быть положительными")
+// nthCombination вычисляет i-ю комбинацию для p^d.
+func nthCombination(p, d int, i int64) ([]int, error) {
+	if p <= 0 || d <= 0 {
+		return nil, errors.New("p и d должны быть положительными")
 	}
 
-	comb := make([]int, k)
+	comb := make([]int, d)
 	current := i
-	for j := k - 1; j >= 0; j-- {
-		comb[j] = int(current % int64(n))
-		current /= int64(n)
+	for j := d - 1; j >= 0; j-- {
+		comb[j] = int(current % int64(p))
+		current /= int64(p)
 	}
 	return comb, nil
 }
