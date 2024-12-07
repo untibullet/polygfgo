@@ -20,6 +20,7 @@ type FieldInterface interface {
 	MulPolynomials(p1, p2 Polynomial) Polynomial
 	DivPolynomials(p1, p2 Polynomial) (Polynomial, Polynomial, error)
 	RandomIrreducible(deg int) Polynomial
+	IsIrreducible(poly Polynomial) bool
 	ToString() string
 }
 
@@ -167,7 +168,7 @@ func (f SimpleField) gorutineRandomIrreducible(start, stop int, deg int) (mass [
 	return
 }
 
-func (f SimpleField) isIrreducible(poly Polynomial) bool {
+func (f SimpleField) IsIrreducible(poly Polynomial) bool {
 	if poly.isZeroPolynomial() {
 		return false
 	}
@@ -269,6 +270,10 @@ func (f ExtendedField) modInverse(poly Polynomial) (Polynomial, error) {
 
 func (f ExtendedField) RandomIrreducible(deg int) (irreducible Polynomial) {
 	return
+}
+
+func (ex ExtendedField) IsIrreducible(poly Polynomial) bool {
+	return ex.simple.IsIrreducible(poly)
 }
 
 func (f ExtendedField) ToString() string {
