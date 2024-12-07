@@ -184,14 +184,14 @@ func (f SimpleField) isIrreducible(poly Polynomial) bool {
 	for m, i := n/2, 1; i <= m; i++ {
 		tmp := f.PowModPolynomial(x, int(math.Pow(float64(f.p), float64(i))), poly)
 		tmp = f.SubPolynomials(tmp, x)
-		if f.GCD(poly, tmp).deg > 0 {
+		if GCD(poly, tmp, f).deg > 0 {
 			return false
 		}
 	}
 	return true
 }
 
-func (f SimpleField) GCD(p1, p2 Polynomial) Polynomial {
+func GCD(p1, p2 Polynomial, f FieldInterface) Polynomial {
 	for !(p2.isZeroPolynomial()) {
 		_, mod, _ := f.DivPolynomials(p1, p2)
 		p1, p2 = p2, mod
