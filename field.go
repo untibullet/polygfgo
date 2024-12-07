@@ -12,6 +12,9 @@ import (
 const UNIT_DEGREE = 1
 
 type FieldInterface interface {
+	GetPrime() int
+	GetDegree() int
+	GetIrreducible() Polynomial
 	AddPolynomials(p1, p2 Polynomial) Polynomial
 	SubPolynomials(p1, p2 Polynomial) Polynomial
 	MulPolynomials(p1, p2 Polynomial) Polynomial
@@ -37,6 +40,18 @@ func FieldFactory(p, m int, generator Polynomial, enableLogging bool) (field Fie
 type SimpleField struct {
 	p             int
 	enableLogging bool
+}
+
+func (sf SimpleField) GetPrime() int {
+	return sf.p
+}
+
+func (sf SimpleField) GetDegree() int {
+	return 1 // Simple degree
+}
+
+func (sf SimpleField) GetIrreducible() Polynomial {
+	return newZeroPolynomial() // Simple irreducible polinomial
 }
 
 func (f SimpleField) Normalize(poly Polynomial) (product Polynomial) {
@@ -195,6 +210,18 @@ type ExtendedField struct {
 	p, m          int
 	generator     Polynomial
 	enableLogging bool
+}
+
+func (ef ExtendedField) GetPrime() int {
+	return ef.p
+}
+
+func (ef ExtendedField) GetDegree() int {
+	return ef.m
+}
+
+func (ef ExtendedField) GetIrreducible() Polynomial {
+	return ef.generator
 }
 
 // Возращает poly(x) mod g(x)
