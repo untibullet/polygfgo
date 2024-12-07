@@ -1,8 +1,12 @@
 package polygfgo
 
 import (
+	"errors"
 	"fmt"
 	"math"
+	"math/big"
+	"runtime"
+	"sync"
 )
 
 const UNIT_DEGREE = 1
@@ -242,4 +246,98 @@ func (f ExtendedField) RandomIrreducible(deg int) (irreducible Polynomial) {
 
 func (f ExtendedField) ToString() string {
 	return fmt.Sprintf("GF(%d^%d) mod %s", f.p, f.m, f.generator.ToString())
+}
+
+// GenerateNKCombinations генерирует все комбинации длины k из диапазона [0..n-1] с повторениями.
+func GenerateNKCombinations(n, k, workers int) (<-chan []int, error) {
+	if n < 0 || k < 0 {
+		return nil, errors.New("n и k должны быть неотрицательными")
+	}
+	if n == 0 && k == 0 {
+		return nil, errors.New("нельзя генерировать комбинации для n=0 и k=0")
+	}
+
+	// Используем big.Int для расчёта n^k, чтобы избежать переполнения
+	total := new(big.Int).Exp(big.NewInt(int64(n)), big.NewInt(int64(k)), nil)
+	if total.Cmp(big.NewInt(0)) == 0 {
+		// Нет комбинаций для n=0 и k>0
+		out := make(chan []int)
+		close(out)
+		return out, nil
+	}
+
+	// Проверяем, помещается ли total в uint64
+	if !total.IsInt64() {
+		return nil, errors.New("слишком большое значение n^k для обработки")
+	}
+	totalInt := total.Int64()
+
+	// Разрешаем k=0 (пустая комбинация)
+	if k == 0 {
+		out := make(chan []int, 1)
+		out <- []int{}
+		close(out)
+		return out, nil
+	}
+
+	// Определяем количество воркеров
+	if workers <= 0 {
+		workers = runtime.NumCPU()
+	}
+	if workers > int(totalInt) {
+		workers = int(totalInt) // Не создавать больше воркеров, чем комбинаций
+	}
+
+	// Распределение работы между горутинами
+	chunkSize := totalInt / int64(workers)
+	remainder := totalInt % int64(workers)
+
+	out := make(chan []int, 100)
+	var wg sync.WaitGroup
+	wg.Add(workers)
+
+	startIndex := int64(0)
+	for w := 0; w < workers; w++ {
+		size := chunkSize
+		if int64(w) < remainder {
+			size++
+		}
+		endIndex := startIndex + size
+
+		go func(start, end int64) {
+			defer wg.Done()
+			for i := start; i < end; i++ {
+				comb, err := nthNKCombination(n, k, i)
+				if err != nil {
+					// Можно логировать ошибку или обработать её по-другому
+					continue
+				}
+				out <- comb
+			}
+		}(startIndex, endIndex)
+		startIndex = endIndex
+	}
+
+	// Закрываем канал после завершения всех горутин
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+
+	return out, nil
+}
+
+// nthNKCombination вычисляет i-ю комбинацию для n^k.
+func nthNKCombination(n, k int, i int64) ([]int, error) {
+	if n <= 0 || k <= 0 {
+		return nil, errors.New("n и k должны быть положительными")
+	}
+
+	comb := make([]int, k)
+	current := i
+	for j := k - 1; j >= 0; j-- {
+		comb[j] = int(current % int64(n))
+		current /= int64(n)
+	}
+	return comb, nil
 }
