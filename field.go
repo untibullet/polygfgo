@@ -164,8 +164,8 @@ func (f SimpleField) PowModPolynomial(base Polynomial, exp int, mod Polynomial) 
 	return f.Normalize(result)
 }
 
-// GenerateIrreducibles генерирует все комбинации длины k из диапазона [0..n-1] с повторениями.
-func GenerateIrreducibles(simpleField SimpleField, length, workers int) (<-chan Polynomial, error) {
+// GenerateIrreduciblePolynomials генерирует все комбинации длины k из диапазона [0..n-1] с повторениями.
+func GenerateIrreduciblePolynomials(simpleField SimpleField, length, workers int) (<-chan Polynomial, error) {
 	prime := simpleField.p
 	if prime < 0 || length < 0 {
 		return nil, errors.New("n и k должны быть неотрицательными")
