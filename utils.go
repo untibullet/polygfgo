@@ -1,6 +1,7 @@
 package polygfgo
 
 import (
+	"log"
 	"math"
 )
 
@@ -82,4 +83,11 @@ func modInverse(a, p int) int {
 		}
 	}
 	return -1
+}
+
+func tryLog(log_on bool, err error) {
+	if !log_on {
+		return
+	}
+	log.Println(err)
 }

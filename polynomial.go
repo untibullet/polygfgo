@@ -12,6 +12,10 @@ type Polynomial struct {
 	deg   int
 }
 
+func (p Polynomial) GetDegree() int {
+	return p.deg
+}
+
 func NewPolynomial(coefs []int) Polynomial {
 	coefsCopy := make([]int, len(coefs))
 	copy(coefsCopy, reverse(coefs))

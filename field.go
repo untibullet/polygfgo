@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"runtime"
 	"sync"
+	"sync/atomic"
 )
 
 const UNIT_DEGREE = 1
@@ -27,10 +28,12 @@ type FieldInterface interface {
 func FieldFactory(p, m int, generator Polynomial, enableLogging bool) (field FieldInterface, err error) {
 	if generator.deg > m {
 		err = fmt.Errorf("the degree of the generator must be lower than or equal to %d", m)
+		tryLog(enableLogging, err)
 		return
 	}
 	if p < 2 || m < 1 {
 		err = fmt.Errorf("invalid values of the numbers p=%d < 2 or m=%d < 1", p, m)
+		tryLog(enableLogging, err)
 		return
 	}
 	if m == 1 || generator.deg < 1 {
@@ -96,7 +99,9 @@ func (f SimpleField) DivPolynomials(p1, p2 Polynomial) (quot, rem Polynomial, er
 	copy(d, reverse(p2.coefs))
 
 	if p2.isZeroPolynomial() {
-		return newZeroPolynomial(), newZeroPolynomial(), fmt.Errorf("division by zero is not supported")
+		err := fmt.Errorf("division by zero is not supported")
+		tryLog(f.enableLogging, err)
+		return newZeroPolynomial(), newZeroPolynomial(), err
 	}
 
 	if p1.deg < p2.deg {
@@ -106,7 +111,9 @@ func (f SimpleField) DivPolynomials(p1, p2 Polynomial) (quot, rem Polynomial, er
 	// Находим коэффициент для вычитания
 	inv := modInverse(d[0], f.p)
 	if inv == -1 {
-		return newZeroPolynomial(), newZeroPolynomial(), fmt.Errorf("there is no reverse element")
+		err := fmt.Errorf("there is no reverse element")
+		tryLog(f.enableLogging, err)
+		return newZeroPolynomial(), newZeroPolynomial(), err
 	}
 
 	for len(r) >= len(d) && !isZero(r) {
@@ -165,7 +172,7 @@ func (f SimpleField) PowModPolynomial(base Polynomial, exp int, mod Polynomial) 
 }
 
 // GenerateIrreduciblePolynomials генерирует все комбинации длины k из диапазона [0..n-1] с повторениями.
-func GenerateIrreduciblePolynomials(simpleField SimpleField, length, workers int) (<-chan Polynomial, error) {
+func GenerateIrreduciblePolynomials(simpleField SimpleField, length, workers, totalCount int) (<-chan Polynomial, error) {
 	prime := simpleField.p
 	if prime < 0 || length < 0 {
 		return nil, errors.New("n и k должны быть неотрицательными")
@@ -185,7 +192,7 @@ func GenerateIrreduciblePolynomials(simpleField SimpleField, length, workers int
 
 	// Проверяем, помещается ли total в uint64
 	if !total.IsInt64() {
-		return nil, errors.New("the value of p^length is too large for processing")
+		return nil, errors.New("the value of p^m is too large for processing")
 	}
 	totalInt := total.Int64()
 
@@ -209,6 +216,8 @@ func GenerateIrreduciblePolynomials(simpleField SimpleField, length, workers int
 	chunkSize := totalInt / int64(workers)
 	remainder := totalInt % int64(workers)
 
+	counter := int32(totalCount)
+
 	out := make(chan Polynomial, 100)
 	var wg sync.WaitGroup
 	wg.Add(workers)
@@ -219,14 +228,18 @@ func GenerateIrreduciblePolynomials(simpleField SimpleField, length, workers int
 		if int64(w) < remainder {
 			size++
 		}
+
 		endIndex := startIndex + size
 
 		go func(start, end int64) {
 			defer wg.Done()
 			for i := start; i < end; i++ {
+				if totalCount != -1 && atomic.LoadInt32(&counter) <= 0 {
+					break
+				}
 				comb, err := nthCombination(prime, length, i)
 				if err != nil {
-					// Можно логировать ошибку или обработать её по-другому
+					tryLog(simpleField.enableLogging, err)
 					continue
 				}
 				if comb[0] == 0 || comb[length-1] != 1 {
@@ -236,7 +249,19 @@ func GenerateIrreduciblePolynomials(simpleField SimpleField, length, workers int
 				if !(simpleField.IsIrreducible(poly)) {
 					continue
 				}
-				out <- poly
+				if totalCount == -1 {
+					out <- poly
+					continue
+				}
+				if atomic.LoadInt32(&counter) <= 0 {
+					break
+				}
+				// Атомарное уменьшение счетчика
+				if atomic.AddInt32(&counter, -1) >= 0 {
+					out <- poly
+				} else {
+					break
+				}
 			}
 		}(startIndex, endIndex)
 		startIndex = endIndex
@@ -358,16 +383,14 @@ func (f ExtendedField) modInverse(poly Polynomial) (Polynomial, error) {
 		_, poly, _ = f.simple.DivPolynomials(poly, f.generator)
 	}
 	if poly.isZeroPolynomial() {
-		return newZeroPolynomial(), fmt.Errorf("polinomial cannot be zero")
+		err := fmt.Errorf("polinomial cannot be zero")
+		tryLog(f.enableLogging, err)
+		return newZeroPolynomial(), err
 	}
 
 	q := int(math.Pow(float64(f.p), float64(f.generator.deg)))
 
 	return f.simple.PowModPolynomial(poly, q-2, f.generator), nil
-}
-
-func (f ExtendedField) RandomIrreducible(deg int) (irreducible Polynomial) {
-	return
 }
 
 func (ex ExtendedField) IsIrreducible(poly Polynomial) bool {
