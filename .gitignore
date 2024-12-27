@@ -1,10 +1,5 @@
 # Игнорирование файла с аутентификационным токеном
 auth_token.txt
 
-# Игнорирование файлов с модульными тестами
-local_field_test.go
-local_polynomial_test.go
-local_utils_test.go
-
 # Игнорирование файла с конфигурацей отладки для VS Code
 launch.json
